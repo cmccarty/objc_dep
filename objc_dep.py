@@ -23,6 +23,7 @@ from sets import Set
 import re
 from os.path import basename
 import argparse
+import numpy
 
 local_regex_import = re.compile("^\s*#(?:import|include)\s+\"(?P<filename>\S*)(?P<extension>\.(?:h|hpp|hh))?\"")
 system_regex_import = re.compile("^\s*#(?:import|include)\s+[\"<](?P<filename>\S*)(?P<extension>\.(?:h|hpp|hh))?[\">]")
@@ -153,6 +154,20 @@ def print_frequencies_chart(d):
         s = "%2d | %s\n" % (i, ", ".join(sorted(list(l[i]))))
         sys.stderr.write(s)
 
+def generate_dependencies(path, exclude, ignore, system, extensions):
+    d = dependencies_in_project_with_file_extensions(path, ['.h', '.hh', '.hpp', '.m', '.mm', '.c', '.cc', '.cpp'], exclude, ignore, system, extensions)
+
+    two_ways_set = two_ways_dependencies(d)
+    untraversed_set = untraversed_files(d)
+
+    category_list, d = category_files(d)
+
+    pch_set = dependencies_in_project(path, '.pch', exclude, ignore, system, extensions)
+
+    d2 = referenced_classes_from_dict(d)    
+    
+    return (d, d2)
+
 def dependencies_in_dot_format(path, exclude, ignore, system, extensions):
     
     d = dependencies_in_project_with_file_extensions(path, ['.h', '.hh', '.hpp', '.m', '.mm', '.c', '.cc', '.cpp'], exclude, ignore, system, extensions)
@@ -172,11 +187,12 @@ def dependencies_in_dot_format(path, exclude, ignore, system, extensions):
     sys.stderr.write("\n# times the class is imported\n\n")
     d2 = referenced_classes_from_dict(d)    
     print_frequencies_chart(d2)
-        
-    #
+
 
     l = []
     l.append("digraph G {")
+    #l.append("\toverlap=false;")
+    #l.append("\tsplines=curved;")
     l.append("\tnode [shape=box];")
 
     for k, deps in d.iteritems():
@@ -218,7 +234,45 @@ def dependencies_in_dot_format(path, exclude, ignore, system, extensions):
 
     l.append("}\n")
     return '\n'.join(l)
+    
+    
+### ================================================ ###
+###              Print / Debug Helpers               ###
+### ================================================ ###    
+    
+    
+def find_bad_links(d_from, d_to):
+    print '\n'
+    
+    # Find any ViewControllers that are included by Models
+    print '[ViewControllers included by Models]'
+    for c in d_to:
+        if 'ViewController' in c:
+            print '%s\n\t%s' % (c, str(d_to[c]))
+    
+    
+## returns min, max, mean, median, variance
+def get_stats(numbers):
+    if not numbers: return None
+    
+    """
+    Number of files
+    Average Number of includes per file
+    Min, Max, Media, Variance
+    """
+    
+    return {'min': numpy.amin(numbers), 'max': numpy.amax(numbers), 'median': numpy.median(numbers), 'mean': numpy.mean(numbers), 'variance': numpy.var(numbers)} 
+    
+    
+    
+def get_dependency_stats(d):
+    counts = [len(d[c]) for c in d]
+    return get_stats(counts)
+    
+       
 
+
+### ================================================ ###
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("-x", "--exclude", nargs='?', default='' ,help="regular expression of substrings to exclude from module names")
@@ -228,7 +282,14 @@ def main():
     parser.add_argument("project_path", help="path to folder hierarchy containing Objective-C files")
     args= parser.parse_args()
 
-    print dependencies_in_dot_format(args.project_path, args.exclude, args.ignore, args.system, args.extensions)
+    #print dependencies_in_dot_format(args.project_path, args.exclude, args.ignore, args.system, args.extensions)
+    (d, d2) = generate_dependencies(args.project_path, args.exclude, args.ignore, args.system, args.extensions)
+    
+    find_bad_links(d, d2)
+    
+    print get_dependency_stats(d)
+    print get_dependency_stats(d2)
+    
 
 if __name__=='__main__':
     main()
